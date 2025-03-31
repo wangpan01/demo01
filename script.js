@@ -225,7 +225,7 @@ function initTimestampConverter() {
     const dateInput = document.getElementById('date-input');
     const dateToTimestampBtn = document.getElementById('date-to-timestamp-btn');
     const dateResult = document.getElementById('date-result');
-    
+
     // 更新当前时间显示
     function updateCurrentTime() {
         const now = new Date();
@@ -249,35 +249,57 @@ function initTimestampConverter() {
         currentTimestampEl.textContent = `秒级: ${timestampSeconds} | 毫秒级: ${timestampMilliseconds}`;
     }
     
-    // 每秒更新当前时间
+    // 初始化当前时间并定时更新
     updateCurrentTime();
     setInterval(updateCurrentTime, 1000);
     
+    // 初始化日期输入为当前日期时间
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    
+    dateInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
+    
     // 时间戳转日期
     timestampToDateBtn.addEventListener('click', function() {
-        const timestamp = parseInt(timestampInput.value);
+        const timestamp = timestampInput.value.trim();
         if (!timestamp) {
-            timestampResult.textContent = '请输入有效的时间戳';
+            timestampResult.textContent = '请输入时间戳';
             return;
         }
         
-        const isMilliseconds = document.querySelector('input[name="timestamp-type"]:checked').value === 'milliseconds';
-        const date = new Date(isMilliseconds ? timestamp : timestamp * 1000);
-        
-        if (isNaN(date.getTime())) {
+        try {
+            let timestampValue = parseInt(timestamp);
+            const isMilliseconds = document.querySelector('input[name="timestamp-type"]:checked').value === 'milliseconds';
+            
+            // 如果是秒级时间戳，转换为毫秒
+            if (!isMilliseconds) {
+                timestampValue *= 1000;
+            }
+            
+            const date = new Date(timestampValue);
+            
+            if (isNaN(date.getTime())) {
+                throw new Error('无效的时间戳');
+            }
+            
+            const formattedDate = date.toLocaleString('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+            });
+            
+            timestampResult.textContent = formattedDate;
+        } catch (error) {
             timestampResult.textContent = '无效的时间戳';
-            return;
         }
-        
-        timestampResult.textContent = date.toLocaleString('zh-CN', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-            weekday: 'long',
-            hour: 'numeric',
-            minute: 'numeric',
-            second: 'numeric'
-        });
     });
     
     // 日期转时间戳
@@ -288,16 +310,22 @@ function initTimestampConverter() {
             return;
         }
         
-        const date = new Date(dateValue);
-        if (isNaN(date.getTime())) {
-            dateResult.textContent = '无效的日期时间';
-            return;
+        try {
+            const date = new Date(dateValue);
+            if (isNaN(date.getTime())) {
+                throw new Error('无效的日期');
+            }
+            
+            const timestampMilliseconds = date.getTime();
+            const timestampSeconds = Math.floor(timestampMilliseconds / 1000);
+            
+            dateResult.innerHTML = `
+                <div>秒级时间戳: ${timestampSeconds}</div>
+                <div>毫秒级时间戳: ${timestampMilliseconds}</div>
+            `;
+        } catch (error) {
+            dateResult.textContent = '无效的日期';
         }
-        
-        const timestampMilliseconds = date.getTime();
-        const timestampSeconds = Math.floor(timestampMilliseconds / 1000);
-        
-        dateResult.textContent = `秒级: ${timestampSeconds}\n毫秒级: ${timestampMilliseconds}`;
     });
 }
 
@@ -307,13 +335,10 @@ function initTimestampConverter() {
 function initTextCompressor() {
     const originalText = document.getElementById('original-text');
     const compressedText = document.getElementById('compressed-text');
-    const compressTextBtn = document.getElementById('compress-text-btn');
-    const clearTextBtn = document.getElementById('clear-text-btn');
-    const originalLength = document.getElementById('original-length');
-    const compressedLength = document.getElementById('compressed-length');
-    const compressionRatio = document.getElementById('compression-ratio');
+    const compressBtn = document.getElementById('compress-text-btn');
+    const clearBtn = document.getElementById('clear-text-btn');
     
-    // 压缩选项
+    // 选项复选框
     const removeSpaces = document.getElementById('remove-spaces');
     const removeLineBreaks = document.getElementById('remove-line-breaks');
     const removeTabs = document.getElementById('remove-tabs');
@@ -321,114 +346,185 @@ function initTextCompressor() {
     const compressJson = document.getElementById('compress-json');
     const compressCode = document.getElementById('compress-code');
     
-    // 压缩文本
+    // 显示统计数据
+    const originalLength = document.getElementById('original-length');
+    const compressedLength = document.getElementById('compressed-length');
+    const compressionRatio = document.getElementById('compression-ratio');
+    
+    // 压缩文本函数
     function compressText() {
         let text = originalText.value;
-        const len = text.length;
+        const originalLen = text.length;
         
         if (!text) {
-            alert('请输入需要压缩的文本');
+            compressedText.value = '';
+            updateStats(0, 0);
             return;
         }
         
-        // 尝试解析 JSON
+        // 尝试判断并压缩JSON
         if (compressJson.checked) {
             try {
+                // 尝试解析为JSON
                 const jsonObj = JSON.parse(text);
+                // 如果解析成功，压缩JSON (移除所有空白字符)
                 text = JSON.stringify(jsonObj);
             } catch (e) {
-                // 如果不是有效的 JSON，继续使用原文本
+                // 如果不是有效的JSON，继续使用其他选项
+                console.log("不是有效的JSON格式，跳过JSON压缩");
+            }
+        }
+        // 尝试压缩代码
+        else if (compressCode.checked) {
+            // 移除代码中的注释 (简单处理，仅适用于基本情况)
+            // 移除单行注释 //
+            text = text.replace(/\/\/.*?(?:\r\n|\n|$)/g, '');
+            // 移除多行注释 /* */
+            text = text.replace(/\/\*[\s\S]*?\*\//g, '');
+            
+            // 压缩基本代码结构
+            if (removeTabs.checked) {
+                text = text.replace(/\t/g, '');
+            }
+            
+            if (removeExtraSpaces.checked) {
+                // 保留必要的空格，避免破坏代码语法
+                text = text.replace(/\s+/g, ' ');
+                // 移除运算符周围多余空格
+                text = text.replace(/\s*([=+\-*/%&|^<>!?:;,.()])\s*/g, '$1');
+                // 恢复必要的空格
+                text = text.replace(/([=+\-*/%&|^<>!?:;,.()])/g, ' $1 ').trim();
+                // 重新压缩多余空格
+                text = text.replace(/\s{2,}/g, ' ');
+                // 花括号后换行
+                if (!removeLineBreaks.checked) {
+                    text = text.replace(/\{\s+/g, '{\n').replace(/\s+\}/g, '\n}');
+                }
+            }
+        }
+        // 常规文本压缩
+        else {
+            // 根据选择的选项压缩文本
+            if (removeTabs.checked) {
+                text = text.replace(/\t/g, '');
+            }
+            
+            if (removeExtraSpaces.checked) {
+                text = text.replace(/[ \f\v\u00A0\u2028\u2029]+/g, ' ');
+            }
+            
+            if (removeSpaces.checked) {
+                text = text.replace(/[ \f\v\u00A0\u2028\u2029]/g, '');
+            }
+            
+            if (removeLineBreaks.checked) {
+                text = text.replace(/[\r\n]+/g, '');
             }
         }
         
-        // 移除制表符
-        if (removeTabs.checked) {
-            text = text.replace(/\t/g, '');
-        }
-        
-        // 移除换行符
-        if (removeLineBreaks.checked) {
-            text = text.replace(/\r?\n/g, '');
-        }
-        
-        // 移除空格
-        if (removeSpaces.checked) {
-            text = text.replace(/ /g, '');
-        }
-        // 合并连续空格
-        else if (removeExtraSpaces.checked) {
-            text = text.replace(/\s+/g, ' ').trim();
-        }
-        
-        // 压缩代码（简单实现）
-        if (compressCode.checked) {
-            text = text
-                .replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, '') // 移除注释
-                .replace(/\s*([{}:;,])\s*/g, '$1') // 移除运算符周围的空格
-                .replace(/\s+/g, ' ') // 合并空格
-                .trim();
-        }
-        
+        // 更新压缩后文本
         compressedText.value = text;
-        updateStats(len, text.length);
+        
+        // 更新统计数据
+        updateStats(originalLen, text.length);
     }
     
-    // 更新统计信息
+    // 更新统计数据函数
     function updateStats(originalLen, compressedLen) {
         originalLength.textContent = originalLen;
         compressedLength.textContent = compressedLen;
         
-        const ratio = originalLen ? ((originalLen - compressedLen) / originalLen * 100).toFixed(1) : 0;
-        compressionRatio.textContent = ratio + '%';
+        // 计算压缩率
+        if (originalLen > 0) {
+            const ratio = ((originalLen - compressedLen) / originalLen * 100).toFixed(1);
+            compressionRatio.textContent = `${ratio}%`;
+        } else {
+            compressionRatio.textContent = '0%';
+        }
     }
     
-    // 清空文本
+    // 清空文本函数
     function clearText() {
         originalText.value = '';
         compressedText.value = '';
         updateStats(0, 0);
     }
     
-    // 绑定事件
-    compressTextBtn.addEventListener('click', compressText);
-    clearTextBtn.addEventListener('click', clearText);
+    // 监听事件
+    compressBtn.addEventListener('click', compressText);
+    clearBtn.addEventListener('click', clearText);
+    
+    // 复选框状态变更时自动更新
+    removeSpaces.addEventListener('change', compressText);
+    removeLineBreaks.addEventListener('change', compressText);
+    removeTabs.addEventListener('change', compressText);
+    removeExtraSpaces.addEventListener('change', compressText);
+    compressJson.addEventListener('change', function() {
+        if (this.checked) {
+            // JSON压缩和代码压缩不能同时选择
+            compressCode.checked = false;
+        }
+        compressText();
+    });
+    compressCode.addEventListener('change', function() {
+        if (this.checked) {
+            // 代码压缩和JSON压缩不能同时选择
+            compressJson.checked = false;
+        }
+        compressText();
+    });
+    
+    // 监听原始文本变化，实时更新统计
+    originalText.addEventListener('input', function() {
+        originalLength.textContent = this.value.length;
+        if (compressedText.value) {
+            updateStats(this.value.length, compressedText.value.length);
+        } else {
+            updateStats(this.value.length, 0);
+        }
+    });
+    
+    // 初始化
+    updateStats(0, 0);
 }
 
 /**
- * 颜色格式验证和转换工具函数
+ * 颜色工具函数
  */
 
-// 验证 HEX 颜色值
+// 检查 HEX 颜色是否有效
 function isValidHex(hex) {
-    return /^#([A-Fa-f0-9]{3}){1,2}$/.test(hex);
+    return /^#([0-9A-F]{3}){1,2}$/i.test(hex);
 }
 
-// 验证 RGB 颜色值
+// 检查 RGB 值是否有效
 function isValidRgb(r, g, b) {
     return r >= 0 && r <= 255 && g >= 0 && g <= 255 && b >= 0 && b <= 255;
 }
 
-// 验证 HSL 颜色值
+// 检查 HSL 值是否有效
 function isValidHsl(h, s, l) {
     return h >= 0 && h <= 360 && s >= 0 && s <= 100 && l >= 0 && l <= 100;
 }
 
 // HEX 转 RGB
 function hexToRgb(hex) {
-    const shorthandRegex = /^#?([a-f\d])([a-f\d])([a-f\d])$/i;
-    hex = hex.replace(shorthandRegex, (m, r, g, b) => r + r + g + g + b + b);
+    // 扩展 3 位 HEX 为 6 位
+    if (hex.length === 4) {
+        hex = '#' + hex[1] + hex[1] + hex[2] + hex[2] + hex[3] + hex[3];
+    }
     
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
     return result ? {
         r: parseInt(result[1], 16),
         g: parseInt(result[2], 16),
         b: parseInt(result[3], 16)
-    } : null;
+    } : { r: 0, g: 0, b: 0 };
 }
 
 // RGB 转 HEX
 function rgbToHex(r, g, b) {
-    return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+    return '#' + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1).toUpperCase();
 }
 
 // RGB 转 HSL
@@ -442,21 +538,15 @@ function rgbToHsl(r, g, b) {
     let h, s, l = (max + min) / 2;
     
     if (max === min) {
-        h = s = 0;
+        h = s = 0; // 灰色
     } else {
         const d = max - min;
         s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
         
         switch (max) {
-            case r:
-                h = (g - b) / d + (g < b ? 6 : 0);
-                break;
-            case g:
-                h = (b - r) / d + 2;
-                break;
-            case b:
-                h = (r - g) / d + 4;
-                break;
+            case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+            case g: h = (b - r) / d + 2; break;
+            case b: h = (r - g) / d + 4; break;
         }
         
         h /= 6;
@@ -478,7 +568,7 @@ function hslToRgb(h, s, l) {
     let r, g, b;
     
     if (s === 0) {
-        r = g = b = l;
+        r = g = b = l; // 灰色
     } else {
         const hue2rgb = (p, q, t) => {
             if (t < 0) t += 1;
@@ -502,4 +592,4 @@ function hslToRgb(h, s, l) {
         g: Math.round(g * 255),
         b: Math.round(b * 255)
     };
-}
+} 
